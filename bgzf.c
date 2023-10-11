@@ -985,6 +985,48 @@ static off_t bgzf_htell(BGZF *fp) {
     }
 }
 
+int bgzf_read_block_nocompress(BGZF *fp)
+{
+    hts_tpool_result *r;
+
+    if (fp->errcode) return -1;
+
+    uint8_t header[BLOCK_HEADER_LENGTH], *compressed_block;
+    int count, size, block_length, remaining;
+
+    size = 0;
+
+    int64_t block_address;
+    block_address = bgzf_htell(fp);
+
+    // Reading an uncompressed file
+    //if ( !fp->is_compressed )
+    if ( 1 )
+    {
+        count = hread(fp->fp, fp->uncompressed_block, BGZF_MAX_BLOCK_SIZE);
+        if (count < 0)  // Error
+        {
+            hts_log_error("Failed to read uncompressed data "
+                          "at offset %"PRId64"%s%s",
+                          block_address, errno ? ": " : "", strerror(errno));
+            fp->errcode |= BGZF_ERR_IO;
+            return -1;
+        }
+        else if (count == 0)  // EOF
+        {
+            fp->block_length = 0;
+            return 0;
+        }
+        if (fp->block_length != 0) fp->block_offset = 0;
+        fp->block_address = block_address;
+        fp->block_length = count;
+        return 0;
+    }
+
+    return 0;
+}
+
+
 int bgzf_read_block(BGZF *fp)
 {
     hts_tpool_result *r;
@@ -1221,6 +1263,126 @@ int bgzf_read_block(BGZF *fp)
     cache_block(fp, size);
     return 0;
 }
+
+ssize_t bgzf_read_nocompress(BGZF *fp, void *data, size_t length)
+{
+    ssize_t bytes_read = 0;
+    uint8_t *output = (uint8_t*)data;
+    if (length <= 0) return 0;
+    assert(fp->is_write == 0);
+    while (bytes_read < length) {
+        int copy_length, available = fp->block_length - fp->block_offset;
+        uint8_t *buffer;
+        if (available <= 0) {
+            int ret = bgzf_read_block_nocompress(fp);
+            if (ret != 0) {
+                hts_log_error("Read block operation failed with error %d after %zd of %zu bytes", fp->errcode, bytes_read, length);
+                fp->errcode |= BGZF_ERR_ZLIB;
+                return -1;
+            }
+            available = fp->block_length - fp->block_offset;
+            if (available == 0) {
+                if (fp->block_length == 0)
+                    break; // EOF
+
+                // Offset was at end of block (see commit e9863a0)
+                fp->block_address = bgzf_htell(fp);
+                fp->block_offset = fp->block_length = 0;
+                continue;
+            } else if (available < 0) {
+                // Block offset was set to an invalid coordinate
+                hts_log_error("BGZF block offset %d set beyond block size %d",
+                              fp->block_offset, fp->block_length);
+                fp->errcode |= BGZF_ERR_MISUSE;
+                return -1;
+            }
+        }
+        copy_length = length - bytes_read < available? length - bytes_read : available;
+        buffer = (uint8_t*)fp->uncompressed_block;
+        memcpy(output, buffer + fp->block_offset, copy_length);
+        fp->block_offset += copy_length;
+        output += copy_length;
+        bytes_read += copy_length;
+
+        // For raw gzip streams this avoids short reads.
+        if (fp->block_offset == fp->block_length) {
+            fp->block_address = bgzf_htell(fp);
+            fp->block_offset = fp->block_length = 0;
+        }
+    }
+
+    fp->uncompressed_address += bytes_read;
+
+    return bytes_read;
+}
+
+
+ssize_t bgzf_read_test_index(char* done_fn, BGZF *fp, void *data, size_t length)
+{
+    ssize_t bytes_read = 0;
+    uint8_t *output = (uint8_t*)data;
+    if (length <= 0) return 0;
+    assert(fp->is_write == 0);
+    while (bytes_read < length) {
+        int copy_length, available = fp->block_length - fp->block_offset;
+        uint8_t *buffer;
+        if (available <= 0) {
+            int ret = bgzf_read_block(fp);
+            while (ret != 0) {
+                printf("==== ret is %d\n", ret);
+                FILE *file = fopen(done_fn, "r");
+                if(file) {
+                    //hts_log_error("Read block operation failed with error %d after %zd of %zu bytes", fp->errcode, bytes_read, length);
+                    //fp->errcode |= BGZF_ERR_ZLIB;
+                    //return -1;
+                    break;
+                }
+                ret = bgzf_read_block(fp);
+            }
+            available = fp->block_length - fp->block_offset;
+            if (available == 0) {
+
+                if (fp->block_length == 0) {
+                    printf("may EEOOFF\n");
+                    FILE *file = fopen(done_fn, "r");
+                    if(file) {
+                        printf("real EEOOFF\n");
+                        break; // EOF
+                    }
+                    sleep(1);
+                }
+
+                // Offset was at end of block (see commit e9863a0)
+                fp->block_address = bgzf_htell(fp);
+                fp->block_offset = fp->block_length = 0;
+                continue;
+            } else if (available < 0) {
+                // Block offset was set to an invalid coordinate
+                hts_log_error("BGZF block offset %d set beyond block size %d",
+                              fp->block_offset, fp->block_length);
+                fp->errcode |= BGZF_ERR_MISUSE;
+                return -1;
+            }
+        }
+        copy_length = length - bytes_read < available? length - bytes_read : available;
+        buffer = (uint8_t*)fp->uncompressed_block;
+        memcpy(output, buffer + fp->block_offset, copy_length);
+        fp->block_offset += copy_length;
+        output += copy_length;
+        bytes_read += copy_length;
+
+        // For raw gzip streams this avoids short reads.
+        if (fp->block_offset == fp->block_length) {
+            fp->block_address = bgzf_htell(fp);
+            fp->block_offset = fp->block_length = 0;
+        }
+    }
+
+    fp->uncompressed_address += bytes_read;
+
+    return bytes_read;
+}
+
 
 ssize_t bgzf_read(BGZF *fp, void *data, size_t length)
 {
@@ -1981,6 +2143,18 @@ int bgzf_flush_try(BGZF *fp, ssize_t size)
     return 0;
 }
 
+ssize_t bgzf_write_nocompress(BGZF *fp, const void *data, size_t length)
+{
+    if ( 1 ) {
+        size_t push = length + (size_t) fp->block_offset;
+        fp->block_offset = push % BGZF_MAX_BLOCK_SIZE;
+        fp->block_address += (push - fp->block_offset);
+        return hwrite(fp->fp, data, length);
+    }
+
+}
+
+
 ssize_t bgzf_write(BGZF *fp, const void *data, size_t length)
 {
     if ( !fp->is_compressed ) {
@@ -2058,6 +2232,54 @@ static void bgzf_close_mt(BGZF *fp) {
             fp->errcode = BGZF_ERR_IO;
     }
 }
+
+int bgzf_close_nocompress(BGZF* fp)
+{
+    int ret, block_length;
+    if (fp == 0) return -1;
+    //if (fp->is_write && fp->is_compressed) {
+    if ( 0 ) {
+        if (bgzf_flush(fp) != 0) {
+            bgzf_close_mt(fp);
+            return -1;
+        }
+        fp->compress_level = -1;
+        block_length = deflate_block(fp, 0); // write an empty block
+        if (block_length < 0) {
+            hts_log_debug("Deflate block operation failed: %s", bgzf_zerr(block_length, NULL));
+            bgzf_close_mt(fp);
+            return -1;
+        }
+        if (hwrite(fp->fp, fp->compressed_block, block_length) < 0
+            || hflush(fp->fp) != 0) {
+            hts_log_error("File write failed");
+            fp->errcode |= BGZF_ERR_IO;
+            return -1;
+        }
+    }
+
+    bgzf_close_mt(fp);
+
+    if ( fp->is_gzip )
+    {
+        if (fp->gz_stream == NULL) ret = Z_OK;
+        else if (!fp->is_write) ret = inflateEnd(fp->gz_stream);
+        else ret = deflateEnd(fp->gz_stream);
+        if (ret != Z_OK) {
+            hts_log_error("Call to inflateEnd/deflateEnd failed: %s", bgzf_zerr(ret, NULL));
+        }
+        free(fp->gz_stream);
+    }
+    ret = hclose(fp->fp);
+    if (ret != 0) return -1;
+    bgzf_index_destroy(fp);
+    free(fp->uncompressed_block);
+    free_cache(fp);
+    ret = fp->errcode ? -1 : 0;
+    free(fp);
+    return ret;
+}
+
 
 int bgzf_close(BGZF* fp)
 {

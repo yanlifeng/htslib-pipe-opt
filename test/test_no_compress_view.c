@@ -46,11 +46,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include "htslib/hts_expr.h"
 #include "header.h"
 
-
-#include "../cram/cram.h"
-#include "../htslib/sam.h"
-#include "../htslib/vcf.h"
-#include "../htslib/hts_log.h"
+typedef struct BGZF BGZF;
 
 struct opts {
     char *fn_ref;
@@ -84,6 +80,7 @@ int sam_loop(int argc, char **argv, int optind, struct opts *opts, htsFile *in, 
     bam1_t *b = NULL;
 
     h = sam_hdr_read(in);
+
     if (h == NULL) {
         fprintf(stderr, "Couldn't read header for \"%s\"\n", argv[optind]);
         return EXIT_FAILURE;
@@ -176,15 +173,12 @@ int sam_loop(int argc, char **argv, int optind, struct opts *opts, htsFile *in, 
             }
         }
         hts_idx_destroy(idx); idx = NULL;
-    } else while ((r = sam_read1(in, h, b)) >= 0) {
-        read_cnt++;
-        if (!opts->benchmark && sam_write1(out, h, b) < 0) {
-            fprintf(stderr, "Error writing output.\n");
-            goto fail;
+    } else {
+        while ((r = sam_read1_write1_nocompress(in, out, h, h, b)) >= 0) {
+            read_cnt++;
         }
-        if (opts->nreads && --opts->nreads == 0)
-            break;
-    }
+    } 
+   
     printf(" ===== read cnt is %d\n", read_cnt);
 
     if (r < -1) {
@@ -400,6 +394,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     hts_opt_free(in_opts);
 
+
     if (hts_opt_apply(out, out_opts))
         return EXIT_FAILURE;
     hts_opt_free(out_opts);
@@ -435,7 +430,7 @@ int main(int argc, char *argv[])
     if (ret != 0)
         exit_code = EXIT_FAILURE;
 
-    ret = hts_close(out);
+    ret = hts_close_nocompress(out);
     if (ret < 0) {
         fprintf(stderr, "Error closing output.\n");
         exit_code = EXIT_FAILURE;

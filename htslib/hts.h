@@ -645,6 +645,11 @@ int hts_flush(htsFile *fp);
 HTSLIB_EXPORT
 int hts_close(htsFile *fp);
 
+HTSLIB_EXPORT
+int hts_close_nocompress(htsFile *fp);
+
+
+
 /*!
   @abstract  Returns the file's format information
   @param fp  The file handle

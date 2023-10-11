@@ -833,6 +833,100 @@ char *hts_format_description(const htsFormat *format)
     return ks_release(&str);
 }
 
+htsFile *hts_open_format_test_index(const char *fn, const char *mode, const htsFormat *fmt)
+{
+    //printf("222\n");
+    char smode[101], *cp, *cp2, *mode_c, *uncomp = NULL;
+    htsFile *fp = NULL;
+    hFILE *hfile = NULL;
+    char fmt_code = '\0';
+    // see enum htsExactFormat in htslib/hts.h
+    const char format_to_mode[] = "\0g\0\0b\0c\0\0b\0g\0\0\0\0\0Ff\0\0";
+
+    strncpy(smode, mode, 99);
+    smode[99]=0;
+    if ((cp = strchr(smode, ',')))
+        *cp = '\0';
+
+    // Migrate format code (b or c) to the end of the smode buffer.
+    for (cp2 = cp = smode; *cp; cp++) {
+        if (*cp == 'b')
+            fmt_code = 'b';
+        else if (*cp == 'c')
+            fmt_code = 'c';
+        else {
+            *cp2++ = *cp;
+            // Cache the uncompress flag 'u' pos if present
+            if (!uncomp && (*cp == 'u')) {
+                uncomp = cp2 - 1;
+            }
+        }
+    }
+    mode_c = cp2;
+    *cp2++ = fmt_code;
+    *cp2++ = 0;
+
+    // Set or reset the format code if opts->format is used
+    if (fmt && fmt->format > unknown_format
+        && fmt->format < sizeof(format_to_mode)) {
+        *mode_c = format_to_mode[fmt->format];
+    }
+
+    // Uncompressed bam/bcf is not supported, change 'u' to '0' on write
+    if (uncomp && *mode_c == 'b' && (strchr(smode, 'w') || strchr(smode, 'a'))) {
+        *uncomp = '0';
+    }
+
+    // If we really asked for a compressed text format then mode_c above will
+    // point to nul.  We set to 'z' to enable bgzf.
+    if (strchr(mode, 'w') && fmt && fmt->compression == bgzf) {
+        if (fmt->format == sam || fmt->format == vcf || fmt->format == text_format)
+            *mode_c = 'z';
+    }
+
+    char *rmme = NULL, *fnidx = strstr(fn, HTS_IDX_DELIM);
+    if ( fnidx ) {
+        rmme = strdup(fn);
+        if ( !rmme ) goto error;
+        rmme[fnidx-fn] = 0;
+        fn = rmme;
+    }
+
+    hfile = hopen_test_index(fn, smode);
+    if (hfile == NULL) goto error;
+
+    fp = hts_hopen(hfile, fn, smode);
+    if (fp == NULL) goto error;
+
+    // Compensate for the loss of exactness in htsExactFormat.
+    // hts_hopen returns generics such as binary or text, but we
+    // have been given something explicit here so use that instead.
+    if (fp->is_write && fmt &&
+        (fmt->format == bam || fmt->format == sam ||
+         fmt->format == vcf || fmt->format == bcf ||
+         fmt->format == bed || fmt->format == fasta_format ||
+         fmt->format == fastq_format))
+        fp->format.format = fmt->format;
+
+    if (fmt && fmt->specific)
+        if (hts_opt_apply(fp, fmt->specific) != 0)
+            goto error;
+
+    if ( rmme ) free(rmme);
+    return fp;
+
+error:
+    hts_log_error("Failed to open file \"%s\"%s%s", fn,
+                  errno ? " : " : "", errno ? strerror(errno) : "");
+    if ( rmme ) free(rmme);
+
+    if (hfile)
+        hclose_abruptly(hfile);
+
+    return NULL;
+}
+
+
 htsFile *hts_open_format(const char *fn, const char *mode, const htsFormat *fmt)
 {
     char smode[101], *cp, *cp2, *mode_c, *uncomp = NULL;
@@ -923,6 +1017,10 @@ error:
         hclose_abruptly(hfile);
 
     return NULL;
+}
+
+htsFile *hts_open_test_index(const char *fn, const char *mode) {
+    return hts_open_format_test_index(fn, mode, NULL);
 }
 
 htsFile *hts_open(const char *fn, const char *mode) {
@@ -1534,6 +1632,23 @@ error:
     }
     return NULL;
 }
+
+int hts_close_nocompress(htsFile *fp)
+{
+    int ret = 0, save;
+    ret = bgzf_close_nocompress(fp->fp.bgzf);
+    save = errno;
+    sam_hdr_destroy(fp->bam_header);
+    hts_idx_destroy(fp->idx);
+    hts_filter_free(fp->filter);
+    free(fp->fn);
+    free(fp->fn_aux);
+    free(fp->line.s);
+    free(fp);
+    errno = save;
+    return ret;
+}
+
 
 int hts_close(htsFile *fp)
 {

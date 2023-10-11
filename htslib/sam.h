@@ -428,6 +428,10 @@ sam_hdr_t *sam_hdr_parse(size_t l_text, const char *text);
 HTSLIB_EXPORT
 sam_hdr_t *sam_hdr_read(samFile *fp);
 
+HTSLIB_EXPORT
+sam_hdr_t *sam_hdr_read_test_index(samFile *fp);
+
+
 /// Write a header to a SAM, BAM or CRAM file.
 /*!
  * @param fp    SAM, BAM or CRAM file header
@@ -1244,8 +1248,17 @@ int sam_index_build2(const char *fn, const char *fnidx, int min_shift) HTS_RESUL
     @return  0 if successful, or negative if an error occurred (see
              sam_index_build for error codes)
 */
+
 HTSLIB_EXPORT
 int sam_index_build3(const char *fn, const char *fnidx, int min_shift, int nthreads) HTS_RESULT_USED;
+
+
+HTSLIB_EXPORT
+int sam_index_build3_test(const char *fn, const char *fnidx, int min_shift, int nthreads) HTS_RESULT_USED;
+
+
+HTSLIB_EXPORT
+int sam_index_build3_merge(const char *fn, const char *fnidx, int min_shift, int nthreads) HTS_RESULT_USED;
 
 /// Free a SAM iterator
 /// @param iter     Iterator to free
@@ -1401,6 +1414,9 @@ const char *sam_parse_region(sam_hdr_t *h, const char *s, int *tid,
     int sam_parse1(kstring_t *s, sam_hdr_t *h, bam1_t *b) HTS_RESULT_USED;
     HTSLIB_EXPORT
     int sam_format1(const sam_hdr_t *h, const bam1_t *b, kstring_t *str) HTS_RESULT_USED;
+
+    HTSLIB_EXPORT
+    int sam_read1_write1(htsFile *fp_in, htsFile *fp_out, sam_hdr_t *h_in, sam_hdr_t *h_out, bam1_t *b) HTS_RESULT_USED;
 
 /// sam_read1 - Read a record from a file
 /** @param fp   Pointer to the source file

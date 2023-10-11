@@ -132,6 +132,10 @@ typedef struct BGZF BGZF;
     HTSLIB_EXPORT
     int bgzf_close(BGZF *fp);
 
+    HTSLIB_EXPORT
+    int bgzf_close_nocompress(BGZF *fp);
+
+
     /**
      * Read up to _length_ bytes from the file storing into _data_.
      *
@@ -142,6 +146,10 @@ typedef struct BGZF BGZF;
      */
     HTSLIB_EXPORT
     ssize_t bgzf_read(BGZF *fp, void *data, size_t length) HTS_RESULT_USED;
+
+    HTSLIB_EXPORT
+    ssize_t bgzf_read_test_index(char* fn, BGZF *fp, void *data, size_t length) HTS_RESULT_USED;
+
 
     /**
      * Write _length_ bytes from _data_ to the file.  If no I/O errors occur,

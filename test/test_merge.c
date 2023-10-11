@@ -35,22 +35,8 @@ DEALINGS IN THE SOFTWARE.  */
 #include "../htslib/sam.h"
 #include "../htslib/vcf.h"
 #include "../htslib/hts_log.h"
-#include "../htslib/bgzf.h"
-#include "htslib/sam.h"
-#include "htslib/bgzf.h"
-#include "cram/cram.h"
-#include "hts_internal.h"
-#include "sam_internal.h"
-#include "htslib/hfile.h"
-#include "htslib/hts_endian.h"
-#include "htslib/hts_expr.h"
-#include "header.h"
 
-
-#include "../cram/cram.h"
-#include "../htslib/sam.h"
-#include "../htslib/vcf.h"
-#include "../htslib/hts_log.h"
+#define MERGENUM 25 
 
 struct opts {
     char *fn_ref;
@@ -76,6 +62,152 @@ enum test_op {
     WRITE_FASTQ        = 64,
     WRITE_FASTA        = 128,
 };
+
+int sam_loop_b2b(int argc, char **argv, int optind, struct opts *opts, htsFile **ins, htsFile *out) {
+    int r = 0;
+    sam_hdr_t *h = NULL;
+    hts_idx_t *idx = NULL;
+    bam1_t *b = NULL;
+
+    h = sam_hdr_read(ins[0]);
+    for(int i = 1; i < MERGENUM; i++) {
+        sam_hdr_read(ins[i]);
+    }
+    if (h == NULL) {
+        fprintf(stderr, "Couldn't read header for \"%s\"\n", argv[optind]);
+        return EXIT_FAILURE;
+    }
+    h->ignore_sam_err = opts->ignore_sam_err;
+    if (opts->extra_hdr_nuls > 0) {
+        char *new_text = realloc(h->text, h->l_text + opts->extra_hdr_nuls);
+        if (new_text == NULL) {
+            fprintf(stderr, "Error reallocing header text\n");
+            goto fail;
+        }
+        h->text = new_text;
+        memset(&h->text[h->l_text], 0, opts->extra_hdr_nuls);
+        h->l_text += opts->extra_hdr_nuls;
+    }
+
+    b = bam_init1();
+    if (b == NULL) {
+        fprintf(stderr, "Out of memory allocating BAM struct\n");
+        goto fail;
+    }
+
+    /* CRAM output */
+    if ((opts->flag & WRITE_CRAM) && opts->fn_ref) {
+        // Create CRAM references arrays
+        int ret = hts_set_fai_filename(out, opts->fn_ref);
+
+        if (ret != 0)
+            goto fail;
+    }
+
+    if (!opts->benchmark && sam_hdr_write(out, h) < 0) {
+        fprintf(stderr, "Error writing output header.\n");
+        goto fail;
+    }
+
+    if (opts->index) {
+        if (sam_idx_init(out, h, opts->min_shift, opts->index) < 0) {
+            fprintf(stderr, "Failed to initialise index\n");
+            goto fail;
+        }
+    }
+    int read_cnt = 0;
+
+    if (optind + 1 < argc && !(opts->flag & READ_COMPRESSED)) { // BAM input and has a region
+        int i;
+        if ((idx = sam_index_load(ins[0], argv[optind])) == 0) {
+            fprintf(stderr, "[E::%s] fail to load the BAM index\n", __func__);
+            goto fail;
+        }
+        if (opts->multi_reg) {
+            hts_itr_t *iter = sam_itr_regarray(idx, h, &argv[optind + 1], argc - optind-1);
+            if (!iter)
+                goto fail;
+            while ((r = sam_itr_next(ins[0], iter, b)) >= 0) {
+                if (!opts->benchmark && sam_write1(out, h, b) < 0) {
+                    fprintf(stderr, "Error writing output.\n");
+                    hts_itr_destroy(iter);
+                    goto fail;
+                }
+                if (opts->nreads && --opts->nreads == 0)
+                    break;
+            }
+            hts_itr_destroy(iter);
+            if (r < -1) {
+                fprintf(stderr, "Error reading input.\n");
+                goto fail;
+            }
+        } else {
+            for (i = optind + 1; i < argc; ++i) {
+                hts_itr_t *iter;
+                if ((iter = sam_itr_querys(idx, h, argv[i])) == 0) {
+                    fprintf(stderr, "[E::%s] fail to parse region '%s'\n", __func__, argv[i]);
+                    goto fail;
+                }
+                while ((r = sam_itr_next(ins[0], iter, b)) >= 0) {
+                    if (!opts->benchmark && sam_write1(out, h, b) < 0) {
+                        fprintf(stderr, "Error writing output.\n");
+                        hts_itr_destroy(iter);
+                        goto fail;
+                    }
+                    if (opts->nreads && --opts->nreads == 0)
+                        break;
+                }
+                hts_itr_destroy(iter);
+                if (r < -1) {
+                    fprintf(stderr, "Error reading input.\n");
+                    goto fail;
+                }
+            }
+        }
+        hts_idx_destroy(idx); idx = NULL;
+    } else {
+        //while ((r = sam_read1(in, h, b)) >= 0) {
+        for(int i = 0; i < MERGENUM; i++) {
+            while ((r = sam_read1_write1(ins[i], out, h, h, b)) >= 0) {
+                read_cnt++;
+                //if (!opts->benchmark && sam_write1(out, h, b) < 0) {
+                //    fprintf(stderr, "Error writing output.\n");
+                //    goto fail;
+                //}
+                //if (opts->nreads && --opts->nreads == 0)
+                //    break;
+            }
+
+        }
+    }
+
+    printf(" ===== read cnt is %d\n", read_cnt);
+
+    if (r < -1) {
+        fprintf(stderr, "Error parsing input.\n");
+        goto fail;
+    }
+
+    if (opts->index) {
+        if (sam_idx_save(out) < 0) {
+            fprintf(stderr, "Error saving index\n");
+            goto fail;
+        }
+    }
+
+    bam_destroy1(b);
+    sam_hdr_destroy(h);
+
+    return 0;
+ fail:
+    if (b) bam_destroy1(b);
+    if (h) sam_hdr_destroy(h);
+    if (idx) hts_idx_destroy(idx);
+
+    return 1;
+}
+
+
 
 int sam_loop(int argc, char **argv, int optind, struct opts *opts, htsFile *in, htsFile *out) {
     int r = 0;
@@ -294,9 +426,11 @@ int vcf_loop(int argc, char **argv, int optind, struct opts *opts, htsFile *in, 
     return exit_code;
 }
 
+
+
 int main(int argc, char *argv[])
 {
-    htsFile *in, *out;
+    htsFile *ins[MERGENUM], *out;
     char moder[8];
     char modew[800];
     int c, exit_code = EXIT_SUCCESS;
@@ -374,12 +508,20 @@ int main(int argc, char *argv[])
     if (opts.flag & READ_CRAM) strcat(moder, "c");
     else if ((opts.flag & READ_COMPRESSED) == 0) strcat(moder, "b");
 
-    in = hts_open(argv[optind], moder);
-    if (in == NULL) {
-        fprintf(stderr, "Error opening \"%s\"\n", argv[optind]);
-        return EXIT_FAILURE;
-    }
+    char prefix[100];
+    char extension[100];
+    sscanf(argv[optind], "%100[^.].%100s", prefix, extension);
 
+    for(int i = 0; i < MERGENUM; i++) {
+        char new_name[200];
+        sprintf(new_name, "%s%d.%s", prefix, i, extension);
+        ins[i] = hts_open(new_name, moder);
+        //printf("===%s\n", new_name);
+        if (ins[i] == NULL) {
+            fprintf(stderr, "Error opening \"%s\"\n", new_name);
+            return EXIT_FAILURE;
+        }
+    }
     strcpy(modew, "w");
     if (opts.clevel >= 0 && opts.clevel <= 9)
         snprintf(modew + 1, sizeof(modew) - 1, "%d", opts.clevel);
@@ -396,8 +538,10 @@ int main(int argc, char *argv[])
     }
 
     // Process any options; currently cram only.
-    if (hts_opt_apply(in, in_opts))
-        return EXIT_FAILURE;
+    for(int i = 0; i < MERGENUM; i++) {
+        if (hts_opt_apply(ins[i], in_opts))
+            return EXIT_FAILURE;
+    }
     hts_opt_free(in_opts);
 
     if (hts_opt_apply(out, out_opts))
@@ -412,19 +556,22 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Error creating thread pool\n");
             exit_code = 1;
         } else {
-            hts_set_opt(in,  HTS_OPT_THREAD_POOL, &p);
+            for(int i = 0; i < MERGENUM; i++) {
+                hts_set_opt(ins[i],  HTS_OPT_THREAD_POOL, &p);
+            }
             hts_set_opt(out, HTS_OPT_THREAD_POOL, &p);
         }
     }
 
     int ret;
-    switch (hts_get_format(in)->category) {
+    switch (hts_get_format(ins[0])->category) {
     case sequence_data:
-        ret = sam_loop(argc, argv, optind, &opts, in, out);
+        //ret = sam_loop(argc, argv, optind, &opts, in, out);
+        ret = sam_loop_b2b(argc, argv, optind, &opts, ins, out);
         break;
 
     case variant_data:
-        ret = vcf_loop(argc, argv, optind, &opts, in, out);
+        ret = vcf_loop(argc, argv, optind, &opts, ins[0], out);
         break;
 
     default:
@@ -440,7 +587,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Error closing output.\n");
         exit_code = EXIT_FAILURE;
     }
-    ret = hts_close(in);
+    for(int i = 0; i < MERGENUM; i++) {
+        ret = hts_close(ins[i]);
+    }
     if (ret < 0) {
         fprintf(stderr, "Error closing input.\n");
         exit_code = EXIT_FAILURE;

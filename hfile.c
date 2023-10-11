@@ -2,7 +2,7 @@
 
     Copyright (C) 2013-2021 Genome Research Ltd.
 
-    Author: John Marshall <jm18@sanger.ac.uk>
+Author: John Marshall <jm18@sanger.ac.uk>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -74,34 +74,34 @@ DEALINGS IN THE SOFTWARE.  */
    unsigned readonly:1;// Whether opened as "r" rather than "r+"/"w"/"a"
    int has_errno;    // Error number from the last failure on this stream
 
-For reading, begin is the first unread character in the buffer and end is the
-first unfilled position:
+   For reading, begin is the first unread character in the buffer and end is the
+   first unfilled position:
 
    -----------ABCDEFGHIJKLMNO---------------
    ^buffer    ^begin         ^end           ^limit
 
-For writing, begin is the first unused position and end is unused so remains
-equal to buffer:
+   For writing, begin is the first unused position and end is unused so remains
+   equal to buffer:
 
    ABCDEFGHIJKLMNOPQRSTUVWXYZ---------------
    ^buffer                   ^begin         ^limit
    ^end
 
-Thus if begin > end then there is a non-empty write buffer, if begin < end
-then there is a non-empty read buffer, and if begin == end then both buffers
-are empty.  In all cases, the stream's file position indicator corresponds
-to the position pointed to by begin.
+   Thus if begin > end then there is a non-empty write buffer, if begin < end
+   then there is a non-empty read buffer, and if begin == end then both buffers
+   are empty.  In all cases, the stream's file position indicator corresponds
+   to the position pointed to by begin.
 
-The above is the normal scenario of a mobile window.  For in-memory
-streams (eg via hfile_init_fixed) the buffer can be used as the full
-contents without any separate backend behind it.  These always have at_eof
-set, offset set to 0, need no read() method, and should just return EINVAL
-for seek():
+   The above is the normal scenario of a mobile window.  For in-memory
+   streams (eg via hfile_init_fixed) the buffer can be used as the full
+   contents without any separate backend behind it.  These always have at_eof
+   set, offset set to 0, need no read() method, and should just return EINVAL
+   for seek():
 
    abcdefghijkLMNOPQRSTUVWXYZ------
    ^buffer    ^begin         ^end  ^limit
-*/
-HTSLIB_EXPORT
+   */
+    HTSLIB_EXPORT
 hFILE *hfile_init(size_t struct_size, const char *mode, size_t capacity)
 {
     hFILE *fp = (hFILE *) malloc(struct_size);
@@ -130,7 +130,7 @@ error:
 }
 
 hFILE *hfile_init_fixed(size_t struct_size, const char *mode,
-                        char *buffer, size_t buf_filled, size_t buf_size)
+        char *buffer, size_t buf_filled, size_t buf_size)
 {
     hFILE *fp = (hFILE *) malloc(struct_size);
     if (fp == NULL) return NULL;
@@ -149,7 +149,7 @@ hFILE *hfile_init_fixed(size_t struct_size, const char *mode,
 
 static const struct hFILE_backend mem_backend;
 
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 void hfile_destroy(hFILE *fp)
 {
     int save = errno;
@@ -222,7 +222,7 @@ int hfile_set_blksize(hFILE *fp, size_t bufsiz) {
 }
 
 /* Called only from hgetc(), when our buffer is empty.  */
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 int hgetc2(hFILE *fp)
 {
     return (refill_buffer(fp) > 0)? (unsigned char) *(fp->begin++) : EOF;
@@ -304,7 +304,7 @@ ssize_t hpeek(hFILE *fp, void *buffer, size_t nbytes)
 
 /* Called only from hread(); when called, our buffer is empty and nread bytes
    have already been placed in the destination buffer.  */
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 ssize_t hread2(hFILE *fp, void *destv, size_t nbytes, size_t nread)
 {
     const size_t capacity = fp->limit - fp->buffer;
@@ -374,7 +374,7 @@ int hflush(hFILE *fp)
 }
 
 /* Called only from hputc(), when our buffer is already full.  */
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 int hputc2(int c, hFILE *fp)
 {
     if (flush_buffer(fp) < 0) return EOF;
@@ -386,7 +386,7 @@ int hputc2(int c, hFILE *fp)
    full and ncopied bytes from the source have already been copied to our
    buffer; or completely empty, ncopied is zero and totalbytes is greater than
    the buffer size.  */
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 ssize_t hwrite2(hFILE *fp, const void *srcv, size_t totalbytes, size_t ncopied)
 {
     const char *src = (const char *) srcv;
@@ -414,7 +414,7 @@ ssize_t hwrite2(hFILE *fp, const void *srcv, size_t totalbytes, size_t ncopied)
 }
 
 /* Called only from hputs(), when our buffer is already full.  */
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 int hputs2(const char *text, size_t totalbytes, size_t ncopied, hFILE *fp)
 {
     return (hwrite2(fp, text, totalbytes, ncopied) >= 0)? 0 : EOF;
@@ -461,7 +461,7 @@ off_t hseek(hFILE *fp, off_t offset, int whence)
     // Avoid seeking if the desired position is within our read buffer.
     // (But not when the next operation may be a write on a mobile buffer.)
     if (whence == SEEK_SET && (! fp->mobile || fp->readonly) &&
-        offset >= fp->offset && offset - fp->offset <= fp->end - fp->buffer) {
+            offset >= fp->offset && offset - fp->offset <= fp->end - fp->buffer) {
         fp->begin = &fp->buffer[offset - fp->offset];
         return offset;
     }
@@ -527,13 +527,54 @@ typedef struct {
     unsigned is_socket:1;
 } hFILE_fd;
 
+char* done_fn;
+char* init_fn;
+
+static ssize_t fd_read_test_index(hFILE *fpv, void *buffer, size_t nbytes)
+{
+    //printf("555\n");
+    static long long now_read_size = 0;
+    static long long now_tot_size = 0;
+    //printf("init_fn is %s\n", init_fn);
+    //printf("done_fn is %s\n", done_fn);
+    FILE *file;
+    while(now_read_size + (128 << 20) > now_tot_size) {
+        if (access(done_fn, F_OK) != -1)  break;
+        file = fopen(init_fn, "r");
+        fseek(file, 0, SEEK_END);
+        now_tot_size = ftell(file);
+        fseek(file, 0, SEEK_SET); 
+        fclose(file);
+        sleep(1);
+    }
+
+    hFILE_fd *fp = (hFILE_fd *) fpv;
+    ssize_t n;
+    //while(1) { 
+    do {
+        n = fp->is_socket? recv(fp->fd, buffer, nbytes, 0)
+            : read(fp->fd, buffer, nbytes);
+        //printf("666\n");
+        now_read_size += n;
+        //printf("now_read_size : %lld, now_tot_size : %lld\n", now_read_size, now_tot_size);
+    } while (n < 0 && errno == EINTR);
+    //    printf("===== ====1  %d %d\n", n, nbytes);
+    //    if(n == nbytes) break;
+    //    FILE *file = fopen(done_fn, "r");
+    //    if(file) break;
+    //    sleep(1);
+    //}
+    //printf("===== ====2   %d %d\n", n, nbytes);
+    return n;
+}
+
 static ssize_t fd_read(hFILE *fpv, void *buffer, size_t nbytes)
 {
     hFILE_fd *fp = (hFILE_fd *) fpv;
     ssize_t n;
     do {
         n = fp->is_socket? recv(fp->fd, buffer, nbytes, 0)
-                         : read(fp->fd, buffer, nbytes);
+            : read(fp->fd, buffer, nbytes);
     } while (n < 0 && errno == EINTR);
     return n;
 }
@@ -544,19 +585,19 @@ static ssize_t fd_write(hFILE *fpv, const void *buffer, size_t nbytes)
     ssize_t n;
     do {
         n = fp->is_socket?  send(fp->fd, buffer, nbytes, 0)
-                         : write(fp->fd, buffer, nbytes);
+            : write(fp->fd, buffer, nbytes);
     } while (n < 0 && errno == EINTR);
 #ifdef _WIN32
-        // On windows we have no SIGPIPE.  Instead write returns
-        // EINVAL.  We check for this and our fd being a pipe.
-        // If so, we raise SIGTERM instead of SIGPIPE.  It's not
-        // ideal, but I think the only alternative is extra checking
-        // in every single piece of code.
-        if (n < 0 && errno == EINVAL &&
+    // On windows we have no SIGPIPE.  Instead write returns
+    // EINVAL.  We check for this and our fd being a pipe.
+    // If so, we raise SIGTERM instead of SIGPIPE.  It's not
+    // ideal, but I think the only alternative is extra checking
+    // in every single piece of code.
+    if (n < 0 && errno == EINVAL &&
             GetLastError() == ERROR_NO_DATA &&
             GetFileType((HANDLE)_get_osfhandle(fp->fd)) == FILE_TYPE_PIPE) {
-            raise(SIGTERM);
-        }
+        raise(SIGTERM);
+    }
 #endif
     return n;
 }
@@ -609,6 +650,11 @@ static int fd_close(hFILE *fpv)
     return ret;
 }
 
+static const struct hFILE_backend fd_backend_test_index =
+{
+    fd_read_test_index, fd_write, fd_seek, fd_flush, fd_close
+};
+
 static const struct hFILE_backend fd_backend =
 {
     fd_read, fd_write, fd_seek, fd_flush, fd_close
@@ -624,6 +670,40 @@ static size_t blksize(int fd)
     return 0;
 #endif
 }
+
+static hFILE *hopen_fd_test_index(const char *filename, const char *mode)
+{
+    //printf("444\n");
+    init_fn = (char*)malloc(strlen(filename) + 1);
+    done_fn = (char*)malloc(strlen(filename) + strlen("has_done_") + 1);
+    if (done_fn) {
+        sprintf(done_fn, "has_done_%s", filename);
+    }
+    if (init_fn) {
+        sprintf(init_fn, filename);
+    }
+
+    //printf("=== init_fn is %s\n", init_fn);
+    //printf("=== done_fn is %s\n", done_fn);
+
+    hFILE_fd *fp = NULL;
+    int fd = open(filename, hfile_oflags(mode), 0666);
+    if (fd < 0) goto error;
+
+    fp = (hFILE_fd *) hfile_init(sizeof (hFILE_fd), mode, blksize(fd));
+    if (fp == NULL) goto error;
+
+    fp->fd = fd;
+    fp->is_socket = 0;
+    fp->base.backend = &fd_backend_test_index;
+    return &fp->base;
+
+error:
+    if (fd >= 0) { int save = errno; (void) close(fd); errno = save; }
+    hfile_destroy((hFILE *) fp);
+    return NULL;
+}
+
 
 static hFILE *hopen_fd(const char *filename, const char *mode)
 {
@@ -680,7 +760,7 @@ static hFILE *hpreload(hFILE *fp) {
     }
     return mem_fp;
 
- err:
+err:
     free(buf);
     hclose_abruptly(fp);
     return NULL;
@@ -729,24 +809,24 @@ static hFILE *hopen_fd_stdinout(const char *mode)
     return hdopen(fd, mode);
 }
 
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 int hfile_oflags(const char *mode)
 {
     int rdwr = 0, flags = 0;
     const char *s;
     for (s = mode; *s; s++)
         switch (*s) {
-        case 'r': rdwr = O_RDONLY;  break;
-        case 'w': rdwr = O_WRONLY; flags |= O_CREAT | O_TRUNC;  break;
-        case 'a': rdwr = O_WRONLY; flags |= O_CREAT | O_APPEND;  break;
-        case '+': rdwr = O_RDWR;  break;
+            case 'r': rdwr = O_RDONLY;  break;
+            case 'w': rdwr = O_WRONLY; flags |= O_CREAT | O_TRUNC;  break;
+            case 'a': rdwr = O_WRONLY; flags |= O_CREAT | O_APPEND;  break;
+            case '+': rdwr = O_RDWR;  break;
 #ifdef O_CLOEXEC
-        case 'e': flags |= O_CLOEXEC;  break;
+            case 'e': flags |= O_CLOEXEC;  break;
 #endif
 #ifdef O_EXCL
-        case 'x': flags |= O_EXCL;  break;
+            case 'x': flags |= O_EXCL;  break;
 #endif
-        default:  break;
+            default:  break;
         }
 
 #ifdef O_BINARY
@@ -874,7 +954,7 @@ int hfile_plugin_init_mem(struct hFILE_plugin *self)
 {
     // mem files are declared remote so they work with a tabix index
     static const struct hFILE_scheme_handler handler =
-            {NULL, hfile_always_remote, "mem", 2000 + 50, hopenv_mem};
+    {NULL, hfile_always_remote, "mem", 2000 + 50, hopenv_mem};
     self->name = "mem";
     hfile_add_scheme_handler("mem", &handler);
     return 0;
@@ -895,12 +975,12 @@ static hFILE *crypt4gh_needed(const char *url, const char *mode)
 #endif
 
     hts_log_error("Accessing \"%s\" needs the crypt4gh plug-in.\n"
-                  "It can be found at "
-                  "https://github.com/samtools/htslib-crypt4gh\n"
-                  "%s"
-                  "If you have the plug-in, please ensure it can be "
-                  "found on your HTS_PATH.",
-                  u, enable_plugins);
+            "It can be found at "
+            "https://github.com/samtools/htslib-crypt4gh\n"
+            "%s"
+            "If you have the plug-in, please ensure it can be "
+            "found on your HTS_PATH.",
+            u, enable_plugins);
 
     errno = EPROTONOSUPPORT;
     return NULL;
@@ -909,7 +989,7 @@ static hFILE *crypt4gh_needed(const char *url, const char *mode)
 int hfile_plugin_init_crypt4gh_needed(struct hFILE_plugin *self)
 {
     static const struct hFILE_scheme_handler handler =
-        { crypt4gh_needed, NULL, "crypt4gh-needed", 0, NULL };
+    { crypt4gh_needed, NULL, "crypt4gh-needed", 0, NULL };
     self->name = "crypt4gh-needed";
     hfile_add_scheme_handler("crypt4gh", &handler);
     return 0;
@@ -923,12 +1003,12 @@ int hfile_plugin_init_crypt4gh_needed(struct hFILE_plugin *self)
 #include "htslib/khash.h"
 
 KHASH_MAP_INIT_STR(scheme_string, const struct hFILE_scheme_handler *)
-static khash_t(scheme_string) *schemes = NULL;
+    static khash_t(scheme_string) *schemes = NULL;
 
-struct hFILE_plugin_list {
-    struct hFILE_plugin plugin;
-    struct hFILE_plugin_list *next;
-};
+    struct hFILE_plugin_list {
+        struct hFILE_plugin plugin;
+        struct hFILE_plugin_list *next;
+    };
 
 static struct hFILE_plugin_list *plugins = NULL;
 static pthread_mutex_t plugins_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -977,10 +1057,10 @@ static inline int priority(const struct hFILE_scheme_handler *handler)
  * executable.
  */
 static int try_exe_add_scheme_handler(const char *scheme,
-                                      const struct hFILE_scheme_handler *handler)
+        const struct hFILE_scheme_handler *handler)
 {
     static void (*add_scheme_handler)(const char *scheme,
-                                      const struct hFILE_scheme_handler *handler);
+            const struct hFILE_scheme_handler *handler);
     if (!add_scheme_handler) {
         // dlopen the main executable and resolve hfile_add_scheme_handler
         void *exe_handle = dlopen(NULL, RTLD_LAZY);
@@ -997,15 +1077,15 @@ static int try_exe_add_scheme_handler(const char *scheme,
 }
 #else
 static int try_exe_add_scheme_handler(const char *scheme,
-                                      const struct hFILE_scheme_handler *handler)
+        const struct hFILE_scheme_handler *handler)
 {
     return -1;
 }
 #endif
 
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 void hfile_add_scheme_handler(const char *scheme,
-                              const struct hFILE_scheme_handler *handler)
+        const struct hFILE_scheme_handler *handler)
 {
     int absent;
     if (!schemes) {
@@ -1017,7 +1097,7 @@ void hfile_add_scheme_handler(const char *scheme,
     khint_t k = kh_put(scheme_string, schemes, scheme, &absent);
     if (absent < 0) {
         hts_log_warning("Couldn't register scheme handler for %s : %s",
-                        scheme, strerror(errno));
+                scheme, strerror(errno));
         return;
     }
     if (absent || priority(handler) > priority(kh_value(schemes, k))) {
@@ -1026,7 +1106,7 @@ void hfile_add_scheme_handler(const char *scheme,
 }
 
 static int init_add_plugin(void *obj, int (*init)(struct hFILE_plugin *),
-                           const char *pluginname)
+        const char *pluginname)
 {
     struct hFILE_plugin_list *p = malloc (sizeof (struct hFILE_plugin_list));
     if (p == NULL) {
@@ -1061,8 +1141,8 @@ static int load_hfile_plugins()
 {
     static const struct hFILE_scheme_handler
         data = { hopen_mem, hfile_always_local, "built-in", 80 },
-        file = { hopen_fd_fileuri, hfile_always_local, "built-in", 80 },
-        preload = { hopen_preload, is_preload_url_remote, "built-in", 80 };
+             file = { hopen_fd_fileuri, hfile_always_local, "built-in", 80 },
+             preload = { hopen_preload, is_preload_url_remote, "built-in", 80 };
 
     schemes = kh_init(scheme_string);
     if (schemes == NULL)
@@ -1126,7 +1206,7 @@ static hFILE *hopen_unknown_scheme(const char *fname, const char *mode)
 static const struct hFILE_scheme_handler *find_scheme_handler(const char *s)
 {
     static const struct hFILE_scheme_handler unknown_scheme =
-        { hopen_unknown_scheme, hfile_always_local, "built-in", 0 };
+    { hopen_unknown_scheme, hfile_always_local, "built-in", 0 };
 
     char scheme[12];
     int i;
@@ -1165,7 +1245,7 @@ static const struct hFILE_scheme_handler *find_scheme_handler(const char *s)
  * Returns number of schemes found on success;
  *        -1 on failure.
  */
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 int hfile_list_schemes(const char *plugin, const char *sc_list[], int *nschemes)
 {
     pthread_mutex_lock(&plugins_lock);
@@ -1204,7 +1284,7 @@ int hfile_list_schemes(const char *plugin, const char *sc_list[], int *nschemes)
  * Returns number of schemes found on success;
  *        -1 on failure
  */
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 int hfile_list_plugins(const char *plist[], int *nplugins)
 {
     pthread_mutex_lock(&plugins_lock);
@@ -1240,7 +1320,7 @@ int hfile_list_plugins(const char *plist[], int *nplugins)
  * Returns 1 if true
  *         0 otherwise
  */
-HTSLIB_EXPORT
+    HTSLIB_EXPORT
 int hfile_has_plugin(const char *name)
 {
     pthread_mutex_lock(&plugins_lock);
@@ -1264,13 +1344,37 @@ int hfile_has_plugin(const char *name)
  * hFILE interface proper
  ***************************/
 
+hFILE *hopen_test_index(const char *fname, const char *mode, ...)
+{
+    //printf("333\n");
+    const struct hFILE_scheme_handler *handler = find_scheme_handler(fname);
+    if (handler) {
+        if (strchr(mode, ':') == NULL
+                || handler->priority < 2000
+                || handler->vopen == NULL) {
+            return handler->open(fname, mode);
+        }
+        else {
+            hFILE *fp;
+            va_list arg;
+            va_start(arg, mode);
+            fp = handler->vopen(fname, mode, arg);
+            va_end(arg);
+            return fp;
+        }
+    }
+    else if (strcmp(fname, "-") == 0) return hopen_fd_stdinout(mode);
+    else return hopen_fd_test_index(fname, mode);
+}
+
+
 hFILE *hopen(const char *fname, const char *mode, ...)
 {
     const struct hFILE_scheme_handler *handler = find_scheme_handler(fname);
     if (handler) {
         if (strchr(mode, ':') == NULL
-            || handler->priority < 2000
-            || handler->vopen == NULL) {
+                || handler->priority < 2000
+                || handler->vopen == NULL) {
             return handler->open(fname, mode);
         }
         else {
@@ -1312,7 +1416,7 @@ static const char *strip_extension(const char *start, const char *limit)
 }
 
 char *haddextension(struct kstring_t *buffer, const char *filename,
-                    int replace, const char *new_extension)
+        int replace, const char *new_extension)
 {
     const char *trailing, *end;
 
@@ -1330,8 +1434,8 @@ char *haddextension(struct kstring_t *buffer, const char *filename,
 
     buffer->l = 0;
     if (kputsn(filename, end - filename, buffer) >= 0 &&
-        kputs(new_extension, buffer) >= 0 &&
-        kputs(trailing, buffer) >= 0) return buffer->s;
+            kputs(new_extension, buffer) >= 0 &&
+            kputs(trailing, buffer) >= 0) return buffer->s;
     else return NULL;
 }
 

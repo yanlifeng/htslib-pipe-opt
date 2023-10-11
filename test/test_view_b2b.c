@@ -35,22 +35,6 @@ DEALINGS IN THE SOFTWARE.  */
 #include "../htslib/sam.h"
 #include "../htslib/vcf.h"
 #include "../htslib/hts_log.h"
-#include "../htslib/bgzf.h"
-#include "htslib/sam.h"
-#include "htslib/bgzf.h"
-#include "cram/cram.h"
-#include "hts_internal.h"
-#include "sam_internal.h"
-#include "htslib/hfile.h"
-#include "htslib/hts_endian.h"
-#include "htslib/hts_expr.h"
-#include "header.h"
-
-
-#include "../cram/cram.h"
-#include "../htslib/sam.h"
-#include "../htslib/vcf.h"
-#include "../htslib/hts_log.h"
 
 struct opts {
     char *fn_ref;
@@ -176,14 +160,8 @@ int sam_loop(int argc, char **argv, int optind, struct opts *opts, htsFile *in, 
             }
         }
         hts_idx_destroy(idx); idx = NULL;
-    } else while ((r = sam_read1(in, h, b)) >= 0) {
+    } else while ((r = sam_read1_write1(in, out, h, h, b)) >= 0) {
         read_cnt++;
-        if (!opts->benchmark && sam_write1(out, h, b) < 0) {
-            fprintf(stderr, "Error writing output.\n");
-            goto fail;
-        }
-        if (opts->nreads && --opts->nreads == 0)
-            break;
     }
     printf(" ===== read cnt is %d\n", read_cnt);
 
